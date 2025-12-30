@@ -18,6 +18,7 @@ LOG_MODULE_REGISTER(actuator, LOG_LEVEL_INF);
 #error "One or more LED aliases are missing/disabled in the devicetree."
 #endif
 
+// GPIO descriptors for LEDS led0-led3 (pulled from device tree aliases)
 static const struct gpio_dt_spec leds[4] = {
     GPIO_DT_SPEC_GET(LED0_NODE, gpios),
     GPIO_DT_SPEC_GET(LED1_NODE, gpios),
@@ -27,6 +28,15 @@ static const struct gpio_dt_spec leds[4] = {
 
 static uint8_t led_state[4];
 
+/**
+ * @brief Apply LED state change
+ * 
+ * Sets the specified LED to the requested on/off state and updates the internal state tracking.
+ * 
+ * @param id LED identifier (0-3)
+ * @param on Desired state: 1 for on, 0 for off
+ * @return 0 on success, -EINVAL if id invalid, -ENODEV if device not ready
+ */
 static int led_apply(uint8_t id, uint8_t on) {
 
     if (id >= 4) {
@@ -46,6 +56,14 @@ static int led_apply(uint8_t id, uint8_t on) {
     return rc;
 }
 
+/**
+ * @brief Toggle the state of the specified LED
+ * 
+ * Public interface for toggling LEDs. Can be called directly from other modules
+ * to control LEDs without using the message bus.
+ * 
+ * @param led_id LED identifier (0-3)
+ */
 void actuator_led_toggle(uint8_t led_id)
 {
     if (led_id < 4) {
@@ -54,6 +72,14 @@ void actuator_led_toggle(uint8_t led_id)
     }
 }
 
+/**
+ * @brief Handle incoming command messages
+ * 
+ * Processes command messages from the message bus and executes the appropriate action.
+ * Supports LED control, mode changes, and statistics reset.
+ * 
+ * @param cmd Pointer to the command payload
+ */
 static void handle_cmd(const struct app_command_payload *cmd) {
 
     uint8_t id;
@@ -119,6 +145,14 @@ static void handle_cmd(const struct app_command_payload *cmd) {
     }
 }
 
+/**
+ * @brief Actuator thread main function
+ * 
+ * Initializes LED GPIO pins and enters main loop to process command messages
+ * from the message bus. Controls LEDs based on received commands.
+ * 
+ * Thread priority: 8 (lower priority than controller)
+ */
 static void actuator_thread(void) {
 
     for (int i = 0; i < 4; i++) {

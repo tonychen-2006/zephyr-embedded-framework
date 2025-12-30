@@ -9,8 +9,7 @@ static uint8_t last_button_state;
 
 static void comms_thread(void) {
 
-    // TODO: implement actual UART TX/RX instead of consuming from bus
-    // Temporarily disabled to allow controller to process button events
+    // Disabled to allow controller to process button events
     
     while (1) {
         k_sleep(K_FOREVER);

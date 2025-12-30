@@ -29,17 +29,48 @@ static struct bt_uuid_128 zb_cmd_uuid     = BT_UUID_INIT_128(BT_UUID_ZBRAIN_CMD_
 static struct bt_conn *g_conn;
 static bool g_notify_enabled;
 
+/**
+ * @brief BLE GATT write callback for command characteristic
+ * 
+ * Called when a BLE client writes to the command characteristic. Parses the 5-byte
+ * command format and publishes it to the application message bus.
+ * 
+ * @param conn BLE connection handle
+ * @param attr GATT attribute being written
+ * @param buf Buffer containing the written data
+ * @param len Length of the written data
+ * @param offset Write offset (must be 0)
+ * @param flags Write flags
+ * @return Number of bytes written on success, BT_GATT_ERR on error
+ */
 static ssize_t cmd_write_cb(struct bt_conn *conn,
                             const struct bt_gatt_attr *attr,
                             const void *buf, uint16_t len,
                             uint16_t offset, uint8_t flags);
 
+/**
+ * @brief GATT CCC (Client Characteristic Configuration) change callback
+ * 
+ * Called when a client enables or disables notifications on the event characteristic.
+ * Updates the global notification state.
+ * 
+ * @param attr GATT attribute that changed
+ * @param value New CCC value (BT_GATT_CCC_NOTIFY = notifications enabled)
+ */
 static void event_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
     g_notify_enabled = (value == BT_GATT_CCC_NOTIFY);
     LOG_INF("notify %s", g_notify_enabled ? "enabled" : "disabled");
 }
 
+/**
+ * @brief BLE connection established callback
+ * 
+ * Called when a client successfully connects. Stores the connection handle.
+ * 
+ * @param conn BLE connection handle
+ * @param err Connection error code (0 = success)
+ */
 static void connected_cb(struct bt_conn *conn, uint8_t err)
 {
     if (err) {
@@ -50,6 +81,14 @@ static void connected_cb(struct bt_conn *conn, uint8_t err)
     LOG_INF("connected");
 }
 
+/**
+ * @brief BLE disconnection callback
+ * 
+ * Called when a client disconnects. Cleans up connection resources and resets notification state.
+ * 
+ * @param conn BLE connection handle
+ * @param reason Disconnection reason code
+ */
 static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 {
     LOG_INF("disconnected (reason %u)", reason);
@@ -82,6 +121,15 @@ BT_GATT_SERVICE_DEFINE(zb_svc,
                            NULL, cmd_write_cb, NULL)
 );
 
+/**
+ * @brief Send a BLE notification with event data
+ * 
+ * Internal helper that sends notification data to the connected client if notifications
+ * are enabled. Non-blocking operation.
+ * 
+ * @param data Pointer to data buffer to send
+ * @param len Length of data in bytes
+ */
 static void notify_event(const uint8_t *data, uint16_t len)
 {
     if (!g_conn || !g_notify_enabled) {
@@ -100,6 +148,20 @@ static void notify_event(const uint8_t *data, uint16_t len)
     }
 }
 
+/**
+ * @brief BLE GATT write callback implementation
+ * 
+ * Validates the command format (5 bytes), extracts command ID and value,
+ * then publishes the command to the application message bus.
+ * 
+ * @param conn BLE connection handle
+ * @param attr GATT attribute being written
+ * @param buf Buffer containing command data
+ * @param len Length of data (must be 5 bytes)
+ * @param offset Write offset (must be 0)
+ * @param flags Write flags
+ * @return len on success, BT_GATT_ERR code on error
+ */
 static ssize_t cmd_write_cb(struct bt_conn *conn,
                             const struct bt_gatt_attr *attr,
                             const void *buf, uint16_t len,
@@ -129,6 +191,13 @@ static ssize_t cmd_write_cb(struct bt_conn *conn,
     return len;
 }
 
+/**
+ * @brief BLE transmission thread (currently disabled)
+ * 
+ * Originally intended to consume messages from the bus and send as notifications.
+ * Currently disabled to prevent message queue conflicts - notifications are sent
+ * directly via comms_ble_notify_button() instead.
+ */
 static void ble_tx_thread(void *, void *, void *) {
     /* Thread disabled to prevent message queue conflicts */
     /* Button notifications via BLE are not currently supported */
@@ -137,6 +206,17 @@ static void ble_tx_thread(void *, void *, void *) {
     }
 }
 
+/**
+ * @brief Send button event notification via BLE
+ * 
+ * Public interface for sending button press/release notifications to connected BLE clients.
+ * Called directly from controller thread. Non-blocking - returns immediately if no client
+ * is connected or notifications are disabled.
+ * 
+ * @param button_id Button identifier (0-3)
+ * @param pressed Press state (0 = released, 1 = pressed)
+ * @param timestamp_ms Timestamp in milliseconds since boot
+ */
 void comms_ble_notify_button(uint8_t button_id, uint8_t pressed, uint32_t timestamp_ms)
 {
     LOG_DBG("notify_button called: id=%u pressed=%u", button_id, pressed);
@@ -160,6 +240,14 @@ void comms_ble_notify_button(uint8_t button_id, uint8_t pressed, uint32_t timest
 K_THREAD_STACK_DEFINE(ble_tx_stack, 1024);
 static struct k_thread ble_tx_thread_data;
 
+/**
+ * @brief Initialize and start BLE subsystem
+ * 
+ * Enables the Bluetooth controller, configures advertising with device name and custom service UUID,
+ * and starts advertising as a connectable peripheral. Creates the BLE TX thread (currently dormant).
+ * 
+ * @return 0 on success, negative error code on failure
+ */
 int comms_ble_start(void) {
     int rc = bt_enable(NULL);
     if (rc) {

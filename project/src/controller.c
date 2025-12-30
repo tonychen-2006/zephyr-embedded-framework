@@ -10,6 +10,15 @@ LOG_MODULE_REGISTER(controller, LOG_LEVEL_INF);
 static enum app_mode g_mode = APP_MODE_IDLE;
 static uint32_t g_button_press_count[16];
 
+/**
+ * @brief Publish a command to the message bus
+ * 
+ * Creates and publishes a command message to the application bus.
+ * Logs errors if the bus is full.
+ * 
+ * @param cmd_id Command identifier
+ * @param value Command value parameter
+ */
 static void publish_cmd(uint8_t cmd_id, uint32_t value) {
 
     LOG_INF("publish_cmd: id=%u val=%u", cmd_id, value);
@@ -31,6 +40,13 @@ static void publish_cmd(uint8_t cmd_id, uint32_t value) {
     }
 }
 
+/**
+ * @brief Set the system operating mode
+ * 
+ * Changes the current system mode and logs the transition.
+ * 
+ * @param new_mode Desired operating mode
+ */
 static void set_mode(enum app_mode new_mode) {
 
     if (new_mode >= APP_MODE_MAX) {
@@ -44,6 +60,15 @@ static void set_mode(enum app_mode new_mode) {
     }
 }
 
+/**
+ * @brief Handle button press/release events
+ * 
+ * Processes button events from the sensor module. Sends BLE notifications for all events
+ * and triggers LED toggles or other actions for button presses. Maintains press counters
+ * for each button.
+ * 
+ * @param b Pointer to the button event payload
+ */
 static void handle_button_event(const struct app_button_payload *b) {
 
     LOG_INF("handle_button_event: id=%u pressed=%u", b->button_id, b->pressed);
@@ -96,6 +121,14 @@ static void handle_button_event(const struct app_button_payload *b) {
     }
 }
 
+/**
+ * @brief Controller thread main function
+ * 
+ * Main event loop that processes button events and commands from the message bus.
+ * Coordinates LED control, mode changes, and BLE notifications.
+ * 
+ * Thread priority: 7 (higher than actuator, lower than sensor)
+ */
 static void controller_thread(void) {
 
     LOG_INF("controller start");

@@ -51,7 +51,10 @@ struct app_status_payload {
     uint32_t uptime_ms;
 };
 
-// Main Message
+/*
+Main Message:
+32-bit layout: type 4B, source 4B, timestamp 4B, union 8B 
+*/
 struct app_msg {
     enum app_msg_type type;
     enum app_msg_source source;
@@ -64,8 +67,9 @@ struct app_msg {
     } data;
 };
 
+// Convert message type enum to a short label for logs/printing.
 static inline const char *app_msg_type_str(enum app_msg_type t) {
-    
+
     switch(t) {
         case APP_MSG_BUTTON_EVENT:  return "BUTTON";
         case APP_MSG_COMMAND:       return "COMMAND";
@@ -74,8 +78,9 @@ static inline const char *app_msg_type_str(enum app_msg_type t) {
     }
 }
 
+// Convert message source enum to a short label for logs/printing.
 static inline const char *app_msg_source_str(enum app_msg_source s) {
-    
+
     switch(s) {
         case APP_SRC_SENSOR: return "SENSOR";
         case APP_SRC_COMMS:  return "COMMS";
