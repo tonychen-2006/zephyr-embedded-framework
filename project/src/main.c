@@ -1,22 +1,16 @@
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/drivers/gpio.h>
+#include <app/comms_ble.h>
 
-// int main(void)
-// {
-//         return 0;
-// }
+LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
 
-#define LED3_NODE DT_ALIAS(led3)
+int main(void) {
+    LOG_INF("system boot");
 
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED3_NODE, gpios);
+    comms_ble_start();
 
-int main(void)
-{
-    if (!device_is_ready(led.port)) return 0;
-    gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
-
-    while (1) {
-        gpio_pin_toggle_dt(&led);
-        k_sleep(K_MSEC(500));
+    while(1) {
+        k_sleep(K_SECONDS(10));
     }
 }
