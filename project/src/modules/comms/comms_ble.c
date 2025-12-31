@@ -11,17 +11,21 @@
 #include <app/app_bus.h>
 #include <app/app_msg.h>
 
-LOG_MODULE_REGISTER(comms_ble, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(comms_ble, LOG_LEVEL_INF); // Enable logging
 
+// ZBrain custom GATT service UUID (base 1a2b3c4d-1111-2222-3333-1234567890ab)
 #define BT_UUID_ZBRAIN_SERVICE_VAL \
     BT_UUID_128_ENCODE(0x1a2b3c4d, 0x1111, 0x2222, 0x3333, 0x1234567890ab)
 
+// Event characteristic UUID for notifications (shares base, ends ...90ac)
 #define BT_UUID_ZBRAIN_EVENT_VAL \
     BT_UUID_128_ENCODE(0x1a2b3c4d, 0x1111, 0x2222, 0x3333, 0x1234567890ac)
 
+// Command characteristic UUID for writes (shares base, ends ...90ad)
 #define BT_UUID_ZBRAIN_CMD_VAL \
     BT_UUID_128_ENCODE(0x1a2b3c4d, 0x1111, 0x2222, 0x3333, 0x1234567890ad)
 
+// UUID instances for the ZBrain service and its characteristics
 static struct bt_uuid_128 zb_service_uuid = BT_UUID_INIT_128(BT_UUID_ZBRAIN_SERVICE_VAL);
 static struct bt_uuid_128 zb_event_uuid   = BT_UUID_INIT_128(BT_UUID_ZBRAIN_EVENT_VAL);
 static struct bt_uuid_128 zb_cmd_uuid     = BT_UUID_INIT_128(BT_UUID_ZBRAIN_CMD_VAL);
@@ -57,9 +61,8 @@ static ssize_t cmd_write_cb(struct bt_conn *conn,
  * @param attr GATT attribute that changed
  * @param value New CCC value (BT_GATT_CCC_NOTIFY = notifications enabled)
  */
-static void event_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
-{
-    g_notify_enabled = (value == BT_GATT_CCC_NOTIFY);
+static void event_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value) {
+    g_notify_enabled = (value == BT_GATT_CCC_NOTIFY); // Track client-enabled notifications
     LOG_INF("notify %s", g_notify_enabled ? "enabled" : "disabled");
 }
 
@@ -71,12 +74,12 @@ static void event_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
  * @param conn BLE connection handle
  * @param err Connection error code (0 = success)
  */
-static void connected_cb(struct bt_conn *conn, uint8_t err)
-{
+static void connected_cb(struct bt_conn *conn, uint8_t err) {
     if (err) {
         LOG_WRN("connect failed (err %u)", err);
         return;
     }
+    // Hold a reference to the active connection to notify later
     g_conn = bt_conn_ref(conn);
     LOG_INF("connected");
 }
@@ -89,25 +92,29 @@ static void connected_cb(struct bt_conn *conn, uint8_t err)
  * @param conn BLE connection handle
  * @param reason Disconnection reason code
  */
-static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
-{
+static void disconnected_cb(struct bt_conn *conn, uint8_t reason) {
     LOG_INF("disconnected (reason %u)", reason);
     g_notify_enabled = false;
 
     if (g_conn) {
+        // Drop reference to the connection on disconnect
         bt_conn_unref(g_conn);
         g_conn = NULL;
     }
 }
 
+// Register connection callbacks for connect/disconnect events
 BT_CONN_CB_DEFINE(conn_callbacks) = {
     .connected = connected_cb,
     .disconnected = disconnected_cb,
 };
 
+
+// Define ZBrain GATT service: one notify characteristic (event) + one write characteristic (command)
 BT_GATT_SERVICE_DEFINE(zb_svc,
     BT_GATT_PRIMARY_SERVICE(&zb_service_uuid),
 
+    // Event characteristic: notify-only, client enables via CCC; no read/write handlers
     BT_GATT_CHARACTERISTIC(&zb_event_uuid.uuid,
                            BT_GATT_CHRC_NOTIFY,
                            BT_GATT_PERM_READ,
@@ -115,6 +122,7 @@ BT_GATT_SERVICE_DEFINE(zb_svc,
     BT_GATT_CCC(event_ccc_changed,
                 BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 
+    // Command characteristic: write-only, handled by cmd_write_cb
     BT_GATT_CHARACTERISTIC(&zb_cmd_uuid.uuid,
                            BT_GATT_CHRC_WRITE,
                            BT_GATT_PERM_WRITE,
@@ -136,12 +144,14 @@ static void notify_event(const uint8_t *data, uint16_t len)
         return;
     }
 
+    // Build notify parameters: attr points to event characteristic, data/len carry the payload
     struct bt_gatt_notify_params params = {
         .attr = &zb_svc.attrs[1],
         .data = data,
         .len = len,
     };
 
+    // Dispatch a GATT notification to the current connection
     int rc = bt_gatt_notify_cb(g_conn, &params);
     if (rc) {
         LOG_WRN("notify failed (%d)", rc);
@@ -167,6 +177,7 @@ static ssize_t cmd_write_cb(struct bt_conn *conn,
                             const void *buf, uint16_t len,
                             uint16_t offset, uint8_t flags)
 {
+    // Validate write offset and length (expect 5 bytes, no offset)
     if (offset != 0) {
         return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
     }
@@ -174,10 +185,12 @@ static ssize_t cmd_write_cb(struct bt_conn *conn,
         return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
 
+    // Parse command_id (b[0]) and 32-bit value (b[1..4], little-endian)
     const uint8_t *b = (const uint8_t *)buf;
     uint8_t command_id = b[0];
-    uint32_t value = sys_get_le32(&b[1]);
+    uint32_t value = sys_get_le32(&b[1]); // read 32-bit LE payload starting at b[1]
 
+    // Build and publish command message to the app bus
     struct app_msg msg = {0};
     msg.type = APP_MSG_COMMAND;
     msg.source = APP_SRC_COMMS;
@@ -226,6 +239,7 @@ void comms_ble_notify_button(uint8_t button_id, uint8_t pressed, uint32_t timest
         return;
     }
 
+    // Pack button event: type, button id, state, timestamp (LE)
     uint8_t out[1 + 1 + 1 + 4];
     out[0] = (uint8_t)APP_MSG_BUTTON_EVENT;
     out[1] = button_id;
@@ -237,6 +251,7 @@ void comms_ble_notify_button(uint8_t button_id, uint8_t pressed, uint32_t timest
     LOG_DBG("notify_event returned");
 }
 
+// Stack buffer for the (currently disabled) BLE TX thread
 K_THREAD_STACK_DEFINE(ble_tx_stack, 1024);
 static struct k_thread ble_tx_thread_data;
 
@@ -256,25 +271,28 @@ int comms_ble_start(void) {
     }
     LOG_INF("BLE enabled");
 
+    // Advertising payload: general discoverable, no BR/EDR, and include the custom service UUID
     const struct bt_data ad[] = {
         BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
         BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_ZBRAIN_SERVICE_VAL),
     };
 
+    // Scan response payload: include full device name
     const struct bt_data sd[] = {
         BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
     };
 
     struct bt_le_adv_param adv_param = {
-        .id = BT_ID_DEFAULT,
-        .sid = 0,
-        .secondary_max_skip = 0,
-        .options = 0x01,  /* Connectable */
-        .interval_min = 0x0020,
-        .interval_max = 0x4000,
-        .peer = NULL,
+        .id = BT_ID_DEFAULT,          // default identity; use BT_ID_RANDOM for a random static address
+        .sid = 0,                     // advertising set ID (0 when only one set is used)
+        .secondary_max_skip = 0,      // extended adv only; 0 = no skips of secondary channel PDUs
+        .options = 0x01,              // BT_LE_ADV_OPT_CONNECTABLE (legacy undirected). Examples: 0x00 non-connectable, 0x02 scannable, 0x05 connectable+use name
+        .interval_min = 0x0020,       // min interval (0.625ms units) ≈20ms; e.g., 0x00A0 ≈100ms
+        .interval_max = 0x4000,       // max interval ≈10.24s; lower to make discovery faster
+        .peer = NULL,                 // NULL = undirected advertising; set to a peer address for directed ads
     };
 
+    // Start legacy, undirected, connectable advertising with flags+service UUID in AD and name in SD.
     rc = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
     if (rc) {
         LOG_ERR("adv start failed (%d)", rc);
@@ -282,6 +300,7 @@ int comms_ble_start(void) {
     }
     LOG_INF("Advertising started");
 
+    // Spawn the (currently idle) BLE TX thread with priority 9 and no delay
     k_thread_create(&ble_tx_thread_data,
                     ble_tx_stack,
                     K_THREAD_STACK_SIZEOF(ble_tx_stack),

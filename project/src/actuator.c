@@ -6,8 +6,9 @@
 #include <app/app_bus.h>
 #include <app/app_msg.h>
 
-LOG_MODULE_REGISTER(actuator, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(actuator, LOG_LEVEL_INF); // Enable logging
 
+// Get device tree node handles for LEDS led0-led3 from device tree aliases
 #define LED0_NODE DT_ALIAS(led0)
 #define LED1_NODE DT_ALIAS(led1)
 #define LED2_NODE DT_ALIAS(led2)
@@ -39,14 +40,17 @@ static uint8_t led_state[4];
  */
 static int led_apply(uint8_t id, uint8_t on) {
 
+    // Validate LED id is in range [0, 3]
     if (id >= 4) {
         return -EINVAL;
     }
 
+    // Validate GPIO device is initialized and ready
     if (!device_is_ready(leds[id].port)) {
         return -ENODEV;
     }
 
+    // Set GPIO pin to the requested level (1=on, 0=off)
     int rc = gpio_pin_set_dt(&leds[id], on ? 1 : 0);
 
     if (rc == 0) {
@@ -88,6 +92,7 @@ static void handle_cmd(const struct app_command_payload *cmd) {
     switch (cmd->command_id) {
 
         case APP_CMD_LED_TOGGLE:
+            // Toggle the specified LED: extract ID from lower byte of value
             id = (uint8_t)cmd->value;
 
             if (id < 4) {
@@ -97,6 +102,7 @@ static void handle_cmd(const struct app_command_payload *cmd) {
             break;
 
         case APP_CMD_LED_SET:
+            // Set LED state explicitly: upper byte = ID, lower byte = on/off state
             id = (uint8_t)((cmd->value >> 8) & 0xFF);
             on = (uint8_t)(cmd->value & 0xFF);
             
@@ -107,6 +113,7 @@ static void handle_cmd(const struct app_command_payload *cmd) {
             break;
 
         case APP_CMD_SET_MODE:
+            // Change mode indicator: turn off all LEDs, then turn on the one matching the mode
             for (uint8_t i = 0; i < 4; i++) {
                 (void)led_apply(i, 0);
             }
@@ -134,6 +141,7 @@ static void handle_cmd(const struct app_command_payload *cmd) {
             break;
 
         case APP_CMD_RESET_STATS:
+            // Flash LED 3 briefly as reset acknowledgment (80 ms pulse)
             (void)led_apply(3, 1);
             k_sleep(K_MSEC(80));
             (void)led_apply(3, 0);
@@ -155,6 +163,7 @@ static void handle_cmd(const struct app_command_payload *cmd) {
  */
 static void actuator_thread(void) {
 
+    // Initialize all 4 LED GPIO pins as outputs, initially off
     for (int i = 0; i < 4; i++) {
         if(!device_is_ready(leds[i].port)) {
             LOG_ERR("LED%d device not ready", i);
@@ -172,6 +181,7 @@ static void actuator_thread(void) {
 
     LOG_INF("actuator start");
 
+    // Main event loop: wait for and process command messages from the bus
     while (1) {
         struct app_msg msg;
 
@@ -184,10 +194,12 @@ static void actuator_thread(void) {
         }
 
         LOG_DBG("actuator got msg type=%d", msg.type);
+        // Only process command messages; ignore other message types
         if (msg.type == APP_MSG_COMMAND) {
             handle_cmd(&msg.data.command);
         }
     }
 }
 
+// Create and start the actuator thread with 1024-byte stack, priority 8 (higher priority than sensors)
 K_THREAD_DEFINE(actuator_tid, 1024, actuator_thread, NULL, NULL, NULL, 8, 0, 0);

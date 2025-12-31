@@ -5,7 +5,7 @@
 #include <app/comms_ble.h>
 #include <app/actuator.h>
 
-LOG_MODULE_REGISTER(controller, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(controller, LOG_LEVEL_INF); // Enable logging
 
 static enum app_mode g_mode = APP_MODE_IDLE;
 static uint32_t g_button_press_count[16];
@@ -73,15 +73,17 @@ static void handle_button_event(const struct app_button_payload *b) {
 
     LOG_INF("handle_button_event: id=%u pressed=%u", b->button_id, b->pressed);
     
-    /* Send BLE notification for both press and release */
+    // Send BLE notification for both press and release
     comms_ble_notify_button(b->button_id, b->pressed, (uint32_t)k_uptime_get());
     
     LOG_INF("BLE notify returned");
 
+    // Ignore button release events; only process presses
     if (!b ->pressed) {
         return; // acts only when pressed not release
     }
 
+    // Track button press count (if button ID is in range)
     if (b->pressed < 16) {
         g_button_press_count[b->button_id]++;
     }
@@ -89,21 +91,25 @@ static void handle_button_event(const struct app_button_payload *b) {
     switch(b->button_id) {
 
         case 0:
+            // Button 0: toggle LED 0
             LOG_INF("button 0: toggling LED");
             actuator_led_toggle(0);
             break;
 
         case 1:
+            // Button 1: toggle LED 1
             LOG_INF("button 1: toggling LED");
             actuator_led_toggle(1);
             break;
         
         case 2:
+            // Button 2: toggle LED 2 and cycle to next mode (IDLE → ACTIVE → DIAG → IDLE...)
             actuator_led_toggle(2);
             set_mode((enum app_mode)((g_mode + 1) % APP_MODE_MAX));
             break;
         
         case 3:
+            // Button 3: toggle LED 3, reset all button counters, and publish reset command
             actuator_led_toggle(3);
             for (int i = 0; i < 16; i++) {
                 g_button_press_count[i] = 0;
@@ -114,6 +120,7 @@ static void handle_button_event(const struct app_button_payload *b) {
             break;
         
         default:
+            // Any other button: just log the press event with its counter
             LOG_INF("btn %u pressed (count=%u)", 
                     b->button_id,
                     (b->button_id < 16) ? g_button_press_count[b->button_id] : 0);
@@ -133,6 +140,7 @@ static void controller_thread(void) {
 
     LOG_INF("controller start");
 
+    // Main event loop: wait for and dispatch button events and commands
     while (1) {
         
         struct app_msg msg;
@@ -150,20 +158,23 @@ static void controller_thread(void) {
         switch (msg.type) {
 
             case APP_MSG_BUTTON_EVENT:
+                // Handle button press/release and send BLE notifications
                 handle_button_event(&msg.data.button);
                 break;
 
             case APP_MSG_COMMAND:
+                // Handle SET_MODE commands from BLE (comms), pass others to actuator
                 if (msg.source == APP_SRC_COMMS && 
                     msg.data.command.command_id == APP_CMD_SET_MODE) {
                         set_mode((enum app_mode)msg.data.command.value);
                 } else {
-                    /* Re-publish commands we don't handle so actuator can process them */
+                    // Re-publish commands that are not handled so actuator can process them
                     app_bus_publish(&msg);
                 }
                 break;
 
             case APP_MSG_STATUS:
+                // Status messages not yet implemented
                 break;
 
             default:
@@ -172,4 +183,5 @@ static void controller_thread(void) {
     }
 }
 
+// Create and start the controller thread with 1024-byte stack, priority 7 (between sensor and actuator)
 K_THREAD_DEFINE(controller_tid, 1024, controller_thread, NULL, NULL, NULL, 7, 0, 0);

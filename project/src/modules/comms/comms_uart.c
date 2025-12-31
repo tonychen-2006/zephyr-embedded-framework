@@ -2,7 +2,7 @@
 #include <zephyr/logging/log.h>
 #include <app/app_bus.h>
 
-LOG_MODULE_REGISTER(comms, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(comms, LOG_LEVEL_INF); // Enable logging
 
 static uint32_t last_button_log_ms;
 static uint8_t last_button_state;
