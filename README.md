@@ -1,4 +1,98 @@
-# zephyr-embedded-framework
+# Zephyr Embedded Framework
+
+A Zephyr RTOS–based application demonstrating a multi-threaded, message-driven architecture for embedded systems. The project integrates GPIO button/LED control, BLE wireless communication, and event-driven message routing across independent, priority-scheduled threads.
+
+## Architecture Overview
+
+The application follows a **layered, message-passing architecture** with three main functional threads and a central application message bus:
+
+```
+┌─────────────────────────────────────────┐
+│  BLE GATT Service (comms_ble)           │
+│  - Advertising, connection mgmt         │
+│  - Notify/Write characteristics         │
+└────────────────┬────────────────────────┘
+                 │ Notifications & Commands
+                 ↓
+        ┌────────────────────┐
+        │  Application Bus   │
+        │  (Message Queue)   │
+        └────────────────────┘
+                 ↑
+     ┌───────────┼───────────┐
+     ↑           ↑           ↑
+┌─────────┐ ┌─────────┐ ┌──────────┐
+│ Sensor  │ │Controller│ │ Actuator │
+│ Module  │ │ (Logic)  │ │ (Output) │
+│ (Input) │ │ Prio: 7  │ │ Prio: 8  │
+│ Prio: 6 │ └─────────┘ └──────────┘
+└─────────┘   Button      LED Control
+              Events
+```
+
+### **Threads & Responsibilities** (by priority, lower number = higher priority)
+
+#### **Sensor Module** (Priority 6)
+- **File:** `src/modules/sensor/sensor_module.c`
+- **Role:** Monitors hardware inputs (buttons via GPIO)
+- **Task:** Polls button states every 10ms, detects press/release transitions, publishes button events to the message bus
+- **Outputs:** `APP_MSG_BUTTON_EVENT` messages
+
+#### **Controller** (Priority 7)
+- **File:** `src/controller.c`
+- **Role:** Central logic and coordination
+- **Tasks:**
+  - Receives button events and sends BLE notifications
+  - Handles mode transitions and command routing
+  - Processes commands from BLE (e.g., SET_MODE)
+  - Routes other commands (e.g., LED control) to the actuator
+- **Outputs:** `APP_MSG_COMMAND` messages, BLE notifications
+
+#### **Actuator** (Priority 8)
+- **File:** `src/actuator.c`
+- **Role:** Controls hardware outputs (LEDs)
+- **Task:** Receives commands from the bus and applies LED state changes
+- **Inputs:** `APP_MSG_COMMAND` messages
+
+#### **BLE Communications** (Asynchronous)
+- **File:** `src/modules/comms/comms_ble.c`
+- **Role:** Wireless interface to connected devices
+- **Tasks:**
+  - Advertises a custom GATT service with Notify/Write characteristics
+  - Receives BLE write commands and publishes to the message bus
+  - Sends button event notifications to connected clients
+  - Manages connections (connect/disconnect callbacks)
+
+### **Message Bus** (`app_bus`)
+A lightweight, fixed-size queue for inter-thread communication:
+- Defined in: `include/app/app_msg.h`, `include/app/app_bus.h`
+- Message types: `BUTTON_EVENT`, `COMMAND`, `STATUS`
+- Thread-safe enqueue/dequeue with overflow tracking
+
+---
+
+## Hardware Setup
+
+- **Buttons:** 4 GPIO inputs (pulled from device tree aliases `button0`–`button3`)
+- **LEDs:** 4 GPIO outputs (pulled from device tree aliases `led0`–`led3`)
+- **BLE Radio:** nRF52840 Bluetooth interface
+
+---
+
+## System Modes
+
+The device supports three operating modes, indicated by which LED is lit:
+
+| Mode | LED | Description |
+|------|-----|-------------|
+| **IDLE** (0) | LED 0 | Default; awaiting input |
+| **ACTIVE** (1) | LED 1 | Processing or communicating |
+| **DIAG** (2) | LED 2 | Diagnostic/service mode |
+
+Mode transitions are triggered by **Button 2** (cycles through modes) or BLE **SET_MODE** command.
+
+---
+
 ## BLE Commands
 
 The device exposes a custom GATT service with two characteristics:
