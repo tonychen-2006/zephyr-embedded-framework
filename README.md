@@ -21,11 +21,11 @@ The application follows a **layered, message-passing architecture** with three m
                  ↑
      ┌───────────┼───────────┐
      ↑           ↑           ↑
-┌─────────┐ ┌─────────┐ ┌──────────┐
+┌─────────┐ ┌──────────┐ ┌──────────┐
 │ Sensor  │ │Controller│ │ Actuator │
 │ Module  │ │ (Logic)  │ │ (Output) │
 │ (Input) │ │ Prio: 7  │ │ Prio: 8  │
-│ Prio: 6 │ └─────────┘ └──────────┘
+│ Prio: 6 │ └──────────┘ └──────────┘
 └─────────┘   Button      LED Control
               Events
 ```
