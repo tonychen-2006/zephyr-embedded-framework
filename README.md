@@ -1,6 +1,6 @@
 # Zephyr Embedded Framework
 
-A Zephyr RTOS–based application demonstrating a multi-threaded, message-driven architecture for embedded systems. The project integrates GPIO button/LED control, BLE wireless communication, and event-driven message routing across independent, priority-scheduled threads.
+A Zephyr RTOS–based application demonstrating a multi-threaded, message-driven architecture for embedded systems. The project utilizes a nRF52840 development board and integrates GPIO button/LED control, BLE wireless communication, and event-driven message routing across independent, priority-scheduled threads.
 
 ## Architecture Overview
 
